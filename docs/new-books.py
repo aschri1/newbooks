@@ -107,9 +107,11 @@ for record in records:  # Assuming records is the iterable containing your data
                 break  # Break out of the loop if the request is successful
             except HTTPError as e:
                 if e.code == 429:
-                    # Wait for some time before retrying
-                    time.sleep(10 * (2 ** retry_count))
-                    retry_count += 1
+                        # Check for the Retry-After header
+                        retry_after = e.headers.get('Retry-After')
+                        if retry_after:
+                            time.sleep(int(retry_after))  # Wait for the specified time
+                            return isbn_lookup(ISBNs)  # Retry the request
                 else:
                     raise  # Re-raise any other HTTPError
         else:
