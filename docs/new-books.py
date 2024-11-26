@@ -111,7 +111,6 @@ for record in records:  # Assuming records is the iterable containing your data
                         retry_after = e.headers.get('Retry-After')
                         if retry_after:
                             time.sleep(int(retry_after))  # Wait for the specified time
-                            return isbn_lookup(ISBNs)  # Retry the request
                 else:
                     raise  # Re-raise any other HTTPError
         else:
