@@ -4,7 +4,7 @@ on:
   workflow_dispatch: # enables you to run it manually
 
   schedule:
-    - cron: "30 22 * * *" # runs at 22:00 UTC (5:00 PM CDT) everyday
+    - cron: "00 11 * * *" # runs at 06:00 UTC (6:00 AM CST) everyday
 
 jobs:
   build:
