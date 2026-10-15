@@ -20,11 +20,11 @@ jobs:
 
       - name: execute py script
         run: |
-          pip install --upgrade pip
-          pip install xmltodict
-          cd docs
-          echo -e "ALMA_API_KEY = '${{ secrets.ALMA_API_KEY }}'\nGB_API_KEY = '${{ secrets.GB_API_KEY }}'" > config.py
-          python new-books.py
+            python -m pip install --upgrade pip
+            python -m pip install xmltodict requests
+            cd docs
+            echo -e "ALMA_API_KEY = '${{ secrets.ALMA_API_KEY }}'\nGB_API_KEY = '${{ secrets.GB_API_KEY }}'" > config.py
+            python new-books.py
 
       - name: deploy to github pages
         uses: peaceiris/actions-gh-pages@v4
