@@ -1,56 +1,72 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
+import os
+import time
 import urllib.parse
 import urllib.request
-import config
-import xmltodict
-import pprint
 import json
-import time
 from urllib.error import HTTPError
+import xmltodict
+import config
 
-base_url = "https://api-na.hosted.exlibrisgroup.com/almaws/v1/analytics/reports"
-api_key = config.ALMA_API_KEY
-gb_api_key = config.GB_API_KEY
+BASE_URL = "https://api-na.hosted.exlibrisgroup.com/almaws/v1/analytics/reports"
+API_KEY = config.ALMA_API_KEY
+GB_API_KEY = config.GB_API_KEY
 
-path = (
-    "/shared/Art Institute of Chicago/Reports/newbooks"
-)
-params = {"apikey": api_key, "path": path, "limit": "50", "col_names": "true"}
-url = base_url + "?" + urllib.parse.urlencode(params)
+PATH = "/shared/Art Institute of Chicago/Reports/newbooks"
+PARAMS = {"apikey": API_KEY, "path": PATH, "limit": "50", "col_names": "true"}
+URL = BASE_URL + "?" + urllib.parse.urlencode(PARAMS)
 
-# function to lookup Google Books API by ISBN
+OUTPUT_DIR = "gh-pages"
+OUTPUT_FILE = os.path.join(OUTPUT_DIR, "new-books.json")
+MAX_RETRIES = 3
+
 def isbn_lookup(ISBNs):
+    """Return a cover thumbnail URL for the first ISBN that yields one, else ''."""
     for ISBN in ISBNs.split("; "):
         gb_url = (
             "https://www.googleapis.com/books/v1/volumes?key="
-            + gb_api_key
+            + GB_API_KEY
             + "&q=isbn:"
-            + ISBN
+            + urllib.parse.quote(ISBN)
             + "&fields=totalItems,items/id,items/volumeInfo(title,description,previewLink,imageLinks)&maxResults=1"
         )
         with urllib.request.urlopen(gb_url) as gb_response:
-            gb_api = gb_response.read()
-            gb_json_data = json.loads(gb_api)
+            gb_json_data = json.load(gb_response)
             if "items" in gb_json_data:
-                try:
-                    thumbnail = gb_json_data["items"][0]["volumeInfo"]["imageLinks"][
-                        "thumbnail"
-                    ]
-                    return thumbnail.replace("http:", "https:")
-                except Exception as e:
-                    thumbnail = ""
+                img = gb_json_data["items"][0]["volumeInfo"].get("imageLinks", {}).get("thumbnail")
+                if img:
+                    return img.replace("http:", "https:")
     return ""
 
+def isbn_lookup_with_retries(ISBNs, max_retries=MAX_RETRIES):
+    attempt = 0
+    while attempt < max_retries:
+        try:
+            return isbn_lookup(ISBNs)
+        except HTTPError as e:
+            if e.code == 429:
+                retry_after = e.headers.get("Retry-After")
+                wait = int(retry_after) if retry_after and retry_after.isdigit() else (2 ** attempt)
+                time.sleep(wait)
+                attempt += 1
+            else:
+                raise
+    return ""
 
+def main():
+    # Ensure output dir exists
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
 
-with urllib.request.urlopen(url) as response:
-    xml = response.read()
-    dict = xmltodict.parse(xml)
-    records = dict["report"]["QueryResult"]["ResultXml"]["rowset"]["Row"]
+    # Fetch Alma report
+    with urllib.request.urlopen(URL) as response:
+        xml = response.read()
+    data = xmltodict.parse(xml)
+    records = data["report"]["QueryResult"]["ResultXml"]["rowset"]["Row"]
+
     formatted_records = []
     for record in records:
-        formatted_record = {
+        fr = {
             "title": "",
             "author": "",
             "primo-url": "",
@@ -58,62 +74,31 @@ with urllib.request.urlopen(url) as response:
             "cover-url": "",
             "created": "",
         }
+
         if "Column4" in record:
-            formatted_record["title"] = record["Column4"].replace(
-                "/", "").rstrip()
+            fr["title"] = record["Column4"].replace("/", "").rstrip()
         if "Column1" in record:
-            formatted_record["author"] = record["Column1"]
-        if "Column4" in record:
-            formatted_record["primo-url"] = (
+            fr["author"] = record["Column1"]
+        if "Column3" in record:
+            fr["primo-url"] = (
                 "https://artic.primo.exlibrisgroup.com/discovery/fulldisplay?docid=alma"
-                + record["Column3"]
+                + record.get("Column3", "")
                 + "&context=L&vid=01ARTIC_INST:01ARTIC&search_scope=MyInst_and_CI&tab=Everything&lang=en"
             )
         if "Column6" in record:
-            formatted_record["call-number"] = record["Column6"]
-        if "Column2" in record and record["Column2"]:
-            ISBNs = record["Column2"]
-            formatted_record["cover-url"] = isbn_lookup(ISBNs)
+            fr["call-number"] = record["Column6"]
+        if record.get("Column2"):
+            fr["cover-url"] = isbn_lookup_with_retries(record["Column2"])
         if "Column7" in record:
-            formatted_record["created"] = record["Column7"]
+            fr["created"] = record["Column7"]
 
-        if formatted_record["cover-url"] != "":
-            formatted_records.append(formatted_record)
+        # Only include records that have a cover (keeps previous behavior)
+        if fr["cover-url"]:
+            formatted_records.append(fr)
 
-    filename = "gh-pages/new-books.json"
-    with open(filename, "w") as outfile:
-        json.dump(formatted_records, outfile, indent=4)
+    # Write output (always write a JSON file, even if empty list)
+    with open(OUTPUT_FILE, "w", encoding="utf-8") as outfile:
+        json.dump(formatted_records, outfile, indent=4, ensure_ascii=False)
 
-
-# Example usage
-retry_count = 0
-max_retries = 3
-
-for record in records:  # Assuming records is the iterable containing your data
-    formatted_record = {
-        "title": "",
-        "author": "",
-        "primo-url": "",
-        "call-number": "",
-        "cover-url": "",  # Initialize cover-url here
-    }
-
-    if "Column2" in record and record["Column2"]:
-        ISBNs = record["Column2"]
-
-        while retry_count < max_retries:
-            try:
-                formatted_record["cover-url"] = isbn_lookup(ISBNs)
-                break  # Break out of the loop if the request is successful
-            except HTTPError as e:
-                if e.code == 429:
-                        # Check for the Retry-After header
-                        retry_after = e.headers.get('Retry-After')
-                        if retry_after:
-                            time.sleep(int(retry_after))  # Wait for the specified time
-                else:
-                    raise  # Re-raise any other HTTPError
-        else:
-            print("Maximum number of retries reached. Unable to make the request.")
-
-    # Rest of your code for processing the record and appending to formatted_records
+if __name__ == "__main__":
+    main()
