@@ -19,11 +19,21 @@ jobs:
           python-version: 3.12
 
       - name: execute py script
+        env:
+          ALMA_API_KEY: ${{ secrets.ALMA_API_KEY }}
+          GB_API_KEY: ${{ secrets.GB_API_KEY }}
         run: |
             python -m pip install --upgrade pip
             python -m pip install xmltodict requests
             cd docs
-            echo -e "ALMA_API_KEY = '${{ secrets.ALMA_API_KEY }}'\nGB_API_KEY = '${{ secrets.GB_API_KEY }}'" > config.py
+            python - <<'PY'
+            import json
+            import os
+
+            with open("config.py", "w", encoding="utf-8") as f:
+                f.write(f"ALMA_API_KEY = {json.dumps(os.environ.get('ALMA_API_KEY', ''))}\n")
+                f.write(f"GB_API_KEY = {json.dumps(os.environ.get('GB_API_KEY', ''))}\n")
+            PY
             python new-books.py
 
       - name: deploy to github pages
