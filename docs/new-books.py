@@ -139,13 +139,22 @@ def main():
         print("GB_API_KEY is not set in config.py")
         sys.exit(1)
 
+    print(f"SANITY CHECK: Alma URL is {URL}")
+    print(f"SANITY CHECK: ALMA_API_KEY set: {bool(API_KEY)}")
+    print(f"SANITY CHECK: GB_API_KEY set: {bool(GB_API_KEY)}")
+
     ensure_output_dir()
 
     session = create_session()
 
     rows = fetch_alma_report(session)
+    print(f"SANITY CHECK: Alma report returned {len(rows)} row(s)")
+    if not rows:
+        print("SANITY CHECK: No Alma rows returned. Check the report path, API permissions, and response format.")
 
     formatted_records = []
+    skipped_no_cover = 0
+    skipped_no_isbn = 0
     for record in rows:
         fr = {
             "title": "",
@@ -173,9 +182,18 @@ def main():
         if "Column7" in record:
             fr["created"] = record["Column7"]
 
+        if not record.get("Column2"):
+            skipped_no_isbn += 1
+
         # Only include records that have a cover (keeps previous behavior)
         if fr["cover-url"]:
             formatted_records.append(fr)
+        else:
+            skipped_no_cover += 1
+
+    print(f"SANITY CHECK: {len(formatted_records)} records kept with cover URLs")
+    print(f"SANITY CHECK: {skipped_no_cover} rows skipped because they had no cover image")
+    print(f"SANITY CHECK: {skipped_no_isbn} rows skipped because they had no ISBN data")
 
     # Always write a JSON file (may be empty)
     try:
